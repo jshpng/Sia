@@ -38,7 +38,8 @@ run = .
 pkgs = ./build ./cmd/siac ./cmd/siad ./compatibility ./crypto ./encoding ./modules ./modules/consensus ./modules/explorer \
        ./modules/gateway ./modules/host ./modules/host/contractmanager ./modules/renter ./modules/renter/contractor       \
        ./modules/renter/hostdb ./modules/renter/hostdb/hosttree ./modules/renter/proto ./modules/miner ./modules/wallet   \
-       ./modules/transactionpool ./node ./node/api ./persist ./siatest ./node/api/server ./sync ./types
+       ./modules/transactionpool ./node ./node/api ./persist ./siatest ./siatest/consensus ./siatest/renterhost           \
+       ./node/api/server ./sync ./types
 
 # fmt calls go fmt on all packages.
 fmt:
@@ -51,7 +52,8 @@ vet: release-std
 
 # will always run on some packages for a while.
 lintpkgs = ./build ./cmd/siac ./cmd/siad ./compatibility ./crypto ./modules ./modules/gateway ./modules/host ./modules/renter \
-           ./modules/renter/contractor ./modules/renter/hostdb ./modules/wallet ./node ./node/api/server ./persist ./siatest
+           ./modules/renter/contractor ./modules/renter/hostdb ./modules/wallet ./node ./node/api/server ./persist ./siatest  \
+	   ./siatest/consensus ./siatest/renterhost
 lint:
 	golint -min_confidence=1.0 -set_exit_status $(lintpkgs)
 

@@ -10,32 +10,41 @@ import (
 )
 
 // Download performs a file download using the passed parameters.
-func (r *Renter) Download(p modules.RenterDownloadParameters) error {
+func (r *Renter) Download(p modules.RenterDownloadParameters) (errChan chan error) {
+	// channel used to return error
+	errChan = make(chan error, 1)
+
 	// lookup the file associated with the nickname.
 	lockID := r.mu.RLock()
 	file, exists := r.files[p.Siapath]
 	r.mu.RUnlock(lockID)
 	if !exists {
-		return fmt.Errorf("no file with that path: %s", p.Siapath)
+		errChan <- fmt.Errorf("no file with that path: %s", p.Siapath)
+		return
 	}
 
 	isHTTPResp := p.Httpwriter != nil
 
 	// validate download parameters
 	if p.Async && isHTTPResp {
-		return errors.New("cannot async download to http response")
+		errChan <- errors.New("cannot async download to http response")
+		return
 	}
 	if isHTTPResp && p.Destination != "" {
-		return errors.New("destination cannot be specified when downloading to http response")
+		errChan <- errors.New("destination cannot be specified when downloading to http response")
+		return
 	}
 	if !isHTTPResp && p.Destination == "" {
-		return errors.New("destination not supplied")
+		errChan <- errors.New("destination not supplied")
+		return
 	}
 	if p.Destination != "" && !filepath.IsAbs(p.Destination) {
-		return errors.New("destination must be an absolute path")
+		errChan <- errors.New("destination must be an absolute path")
+		return
 	}
 	if p.Offset == file.size {
-		return errors.New("offset equals filesize")
+		errChan <- errors.New("offset equals filesize")
+		return
 	}
 	// sentinel: if length == 0, download the entire file
 	if p.Length == 0 {
@@ -43,7 +52,8 @@ func (r *Renter) Download(p modules.RenterDownloadParameters) error {
 	}
 	// Check whether offset and length is valid.
 	if p.Offset < 0 || p.Offset+p.Length > file.size {
-		return fmt.Errorf("offset and length combination invalid, max byte is at index %d", file.size-1)
+		errChan <- fmt.Errorf("offset and length combination invalid, max byte is at index %d", file.size-1)
+		return
 	}
 
 	// Instantiate the correct DownloadWriter implementation
@@ -54,7 +64,8 @@ func (r *Renter) Download(p modules.RenterDownloadParameters) error {
 	} else {
 		dfw, err := NewDownloadFileWriter(p.Destination, p.Offset, p.Length)
 		if err != nil {
-			return err
+			errChan <- err
+			return
 		}
 		dw = dfw
 	}
@@ -67,16 +78,17 @@ func (r *Renter) Download(p modules.RenterDownloadParameters) error {
 	r.mu.Unlock(lockID)
 	r.newDownloads <- d
 
-	// Block until the download has completed.
-	//
-	// TODO: Eventually just return the channel to the error instead of the
-	// error itself.
-	select {
-	case <-d.downloadFinished:
-		return d.Err()
-	case <-r.tg.StopChan():
-		return errors.New("download interrupted by shutdown")
-	}
+	// Send error of completed download to errChan
+	go func() {
+		select {
+		case <-d.downloadFinished:
+			errChan <- d.Err()
+		case <-r.tg.StopChan():
+			errChan <- errors.New("download interrupted by shutdown")
+		}
+		close(errChan)
+	}()
+	return
 }
 
 // DownloadQueue returns the list of downloads in the queue.

@@ -356,24 +356,21 @@ func (api *API) renterDownloadHandler(w http.ResponseWriter, req *http.Request, 
 		return
 	}
 
-	if params.Async { // Create goroutine if `async` param set.
-		// check for errors for 5 seconds to catch validation errors (no file with
-		// that path, invalid parameters, insufficient hosts, etc)
-		errchan := make(chan error)
-		go func() {
-			errchan <- api.renter.Download(params)
-		}()
+	errChan := api.renter.Download(params)
+	if params.Async {
+		// If there was no error returned by the errchan right away, the
+		// download was started successfully. We are not going to wait for it
+		// to finish.
 		select {
-		case err = <-errchan:
+		case err = <-errChan:
 			if err != nil {
 				WriteError(w, Error{"download failed: " + err.Error()}, http.StatusInternalServerError)
 				return
 			}
-		case <-time.After(time.Millisecond * 100):
+		default:
 		}
 	} else {
-		err := api.renter.Download(params)
-		if err != nil {
+		if err := <-errChan; err != nil {
 			WriteError(w, Error{"download failed: " + err.Error()}, http.StatusInternalServerError)
 			return
 		}

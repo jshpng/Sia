@@ -293,7 +293,7 @@ type Renter interface {
 
 	// Download performs a download according to the parameters passed, including
 	// downloads of `offset` and `length` type.
-	Download(params RenterDownloadParameters) error
+	Download(params RenterDownloadParameters) chan error
 
 	// DownloadQueue lists all the files that have been scheduled for download.
 	DownloadQueue() []DownloadInfo

@@ -6,6 +6,7 @@ package hostdb
 
 import (
 	"net"
+	"sync"
 	"time"
 
 	"github.com/NebulousLabs/Sia/build"
@@ -40,8 +41,7 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 
 	hdb.scanWait = true
 	scanPool := make(chan modules.HostDBEntry)
-	threadsDone := make(chan struct{})
-	threadsDoneClosed := false
+	scanWG := new(sync.WaitGroup)
 
 	go func() {
 		// Nobody is emptying the scan list, volunteer.
@@ -71,27 +71,17 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 				entry = recentEntry
 			}
 
-			// Create new worker thread. newPool allows us to ignore
-			// maxScanningThreads once as explained in the comment above.
+			// Create new worker thread.
 			if hdb.scanningThreads < maxScanningThreads {
-				err := hdb.tg.Add()
-				if err != nil {
-					// Hostdb is shutting down
-					hdb.mu.Unlock()
-					break
-				}
 				// Spin up scanning thread
+				scanWG.Add(1)
 				hdb.scanningThreads++
 				go func() {
 					hdb.threadedProbeHosts(scanPool)
 					hdb.mu.Lock()
 					hdb.scanningThreads--
-					if !threadsDoneClosed && hdb.scanningThreads < maxScanningThreads {
-						close(threadsDone)
-						threadsDoneClosed = true
-					}
 					hdb.mu.Unlock()
-					hdb.tg.Done()
+					scanWG.Done()
 				}()
 			}
 			hdb.mu.Unlock()
@@ -109,9 +99,7 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 		// When we exit the goroutine we need to wait for spawned scanning
 		// routines to avoid deadlocks.
 		close(scanPool)
-		select {
-		case <-threadsDone:
-		}
+		scanWG.Wait()
 		// Let the world now that nobody is emptying the scanList anymore.
 		hdb.mu.Lock()
 		hdb.scanWait = false
